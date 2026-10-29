@@ -62,11 +62,13 @@ enum Catalog {
             if !saga.isEmpty { return saga.sorted { (info[$0]?.year ?? 0) < (info[$1]?.year ?? 0) } }
         }
         let genres = Set(base.genres)
-        return others
-            .map { ($0, Set(info[$0]?.genres ?? []).intersection(genres).count) }
-            .filter { $0.1 > 0 }
-            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : (info[$0.0]?.rating ?? 0) > (info[$1.0]?.rating ?? 0) }
-            .map(\.0)
+        func shared(_ other: String) -> Int { Set(info[other]?.genres ?? []).intersection(genres).count }
+        func rating(_ other: String) -> Double { info[other]?.rating ?? 0 }
+        let matching: [String] = others.filter { shared($0) > 0 }
+        return matching.sorted { a, b in
+            let left = shared(a), right = shared(b)
+            return left != right ? left > right : rating(a) > rating(b)
+        }
     }
 
     static func runtimeText(_ minutes: Int?) -> String? {
