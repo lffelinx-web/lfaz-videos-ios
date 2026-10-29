@@ -1,0 +1,160 @@
+import SwiftUI
+
+@main
+struct LFAZVideosApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @StateObject private var store = AppStore()
+    var body: some Scene {
+        WindowGroup {
+            RootView().environmentObject(store).tint(Palette.accent).preferredColorScheme(.dark)
+        }
+    }
+}
+
+enum Route: Hashable {
+    case movie(String)
+    case show(String)
+    case list(title: String, ids: [String])
+}
+
+/// The floating bar has two faces: Inicio · Biblioteca · Buscar, and inside Biblioteca
+/// the grid button plus Películas · Series · Videos.
+enum BarMode: Equatable {
+    enum Main: Equatable { case home, search }
+    case main(Main)
+    case library(LibrarySection)
+}
+
+struct RootView: View {
+    @EnvironmentObject var store: AppStore
+    @State private var mode = BarMode.main(.home)
+    @State private var path = NavigationPath()
+    @State private var settings = false
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            screen
+                .navigationDestination(for: Route.self) { route in
+                    switch route {
+                    case .movie(let id): MovieDetailView(id: id)
+                    case .show(let id): ShowDetailView(id: id)
+                    case .list(let title, let ids): TitleGridView(title: title, ids: ids)
+                    }
+                }
+        }
+        .overlay(alignment: .bottom) {
+            if path.isEmpty {
+                FloatingBar(mode: $mode).padding(.horizontal, 16).padding(.bottom, 4)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: path.isEmpty)
+        .background(Palette.background.ignoresSafeArea())
+        .sheet(isPresented: $settings) { SettingsView() }
+        .fullScreenCover(item: $store.vlcSession) { session in
+            VLCPlayerScreen(request: session.request, url: session.url,
+                            onProgress: { store.record(session.request.id, position: $0, duration: $1) },
+                            onClose: { store.saveProgress(); store.vlcSession = nil })
+        }
+        .alert("No se pudo completar", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+            Button("Aceptar", role: .cancel) { store.error = nil }
+        } message: { Text(store.error ?? "") }
+        .task {
+            await store.checkConnection()
+            store.enrichMetadata()
+        }
+        .onAppear { if store.account == nil { settings = true } }
+        .onChange(of: mode) { _, _ in path = NavigationPath() }
+    }
+
+    @ViewBuilder private var screen: some View {
+        switch mode {
+        case .main(.home): HomeView(openSettings: { settings = true }, openSearch: { withAnimation(.snappy) { mode = .main(.search) } })
+        case .main(.search): SearchView()
+        case .library(let section): LibraryView(section: section, openSearch: { withAnimation(.snappy) { mode = .main(.search) } })
+        }
+    }
+}
+
+struct FloatingBar: View {
+    @Binding var mode: BarMode
+    @Namespace private var namespace
+    private let spring = Animation.spring(response: 0.45, dampingFraction: 0.82)
+
+    var body: some View {
+        HStack(spacing: 4) {
+            switch mode {
+            case .main(let tab):
+                item("Inicio", "house.fill", selected: tab == .home) { mode = .main(.home) }
+                    .matchedGeometryEffect(id: "anchor", in: namespace)
+                Group {
+                    item("Biblioteca", "books.vertical", selected: false) { mode = .library(.movies) }
+                    item("Buscar", "magnifyingglass", selected: tab == .search) { mode = .main(.search) }
+                }.transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)), removal: .opacity))
+            case .library:
+                Button { withAnimation(spring) { mode = .main(.home) } } label: {
+                    Image(systemName: "square.grid.2x2.fill").font(.title3)
+                        .frame(width: 56, height: 56)
+                        .background(Circle().fill(Color.white.opacity(0.08)))
+                        .overlay(Circle().stroke(Palette.stroke))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Volver al menú principal")
+                .matchedGeometryEffect(id: "anchor", in: namespace)
+                ForEach(LibrarySection.allCases) { section in
+                    item(section.title, section.tabSymbol, selected: self.mode == .library(section)) { mode = .library(section) }
+                }
+                .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.6, anchor: .leading)),
+                                        removal: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading))))
+            }
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func item(_ title: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button { withAnimation(spring) { action() } } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                Text(title).font(.subheadline.weight(selected ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.75)
+            }
+            .foregroundStyle(selected ? Palette.accent : .white)
+            .padding(.horizontal, 10).frame(height: 56).frame(maxWidth: .infinity)
+            .background {
+                if selected {
+                    Capsule().fill(Palette.accent.opacity(0.22)).overlay(Capsule().stroke(Palette.accent.opacity(0.6)))
+                        .matchedGeometryEffect(id: "pill", in: namespace)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+extension LibrarySection {
+    var tabSymbol: String { switch self { case .movies: return "movieclapper"; case .series: return "play.tv"; case .videos: return "play" } }
+}
+
+/// The header shared by Inicio, Biblioteca and Buscar.
+struct ScreenHeader<Trailing: View>: View {
+    var title: String?
+    var subtitle: String?
+    @ViewBuilder var trailing: () -> Trailing
+    var body: some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 4) {
+                Brand()
+                if let title { Text(title).font(.system(size: 40, weight: .bold)).padding(.top, 6) }
+                if let subtitle { Text(subtitle).font(.title3).foregroundStyle(Palette.secondaryText) }
+            }
+            Spacer()
+            HStack(spacing: 12, content: trailing).padding(.bottom, title == nil ? 0 : 8)
+        }
+        .padding(.horizontal, 20)
+    }
+}
