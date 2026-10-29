@@ -10,7 +10,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var nasConnected: Bool?
     @Published var error: String?
     @Published var libraryFeedback: String?
-    @Published private(set) var progress: [String: WatchProgress] = [:]
+    @Published var progress: [String: WatchProgress] = [:]
     /// The video VLC is showing; MP4 files open in the native player instead.
     @Published var vlcSession: VLCSession?
     @Published private(set) var opening: String?
