@@ -17,12 +17,14 @@ enum Route: Hashable {
     case list(title: String, ids: [String])
 }
 
-/// The floating bar has two faces: Inicio · Biblioteca · Buscar, and inside Biblioteca
-/// the grid button plus Películas · Series · Videos.
-enum BarMode: Equatable {
-    enum Main: Equatable { case home, search }
-    case main(Main)
-    case library(LibrarySection)
+/// The bar has two faces, as in the sketches: Inicio · Biblioteca · Buscar with the profile
+/// circle on the right, and inside Biblioteca the menu circle on the left plus
+/// Películas · Series · Videos.
+enum AppTab: Hashable {
+    case home, search, profile
+    case section(LibrarySection)
+
+    var isLibrary: Bool { if case .section = self { return true } else { return false } }
 }
 
 struct RootView: View {
@@ -30,179 +32,174 @@ struct RootView: View {
     @State private var settings = false
 
     var body: some View {
-        Group {
-            // iOS 18+ uses the system tab bar, which on iOS 26 is Liquid Glass with the
-            // draggable lens; iOS 17 keeps the custom floating bar.
-            if #available(iOS 18, *) { SystemTabs(openSettings: { settings = true }) }
-            else { LegacyRoot(openSettings: { settings = true }) }
-        }
-        .background(Palette.background.ignoresSafeArea())
-        .sheet(isPresented: $settings) { SettingsView() }
-        .fullScreenCover(item: $store.vlcSession) { session in
-            VLCPlayerScreen(request: session.request, url: session.url,
-                            onProgress: { store.record(session.request.id, position: $0, duration: $1) },
-                            onClose: { store.saveProgress(); store.vlcSession = nil })
-        }
-        .alert("No se pudo completar", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-            Button("Aceptar", role: .cancel) { store.error = nil }
-        } message: { Text(store.error ?? "") }
-        .task {
-            await BlockCache.shared.configure(megabytes: UserDefaults.standard.object(forKey: "cacheMB") as? Int ?? 2048)
-            await store.checkConnection()
-            store.enrichMetadata()
-        }
-        .onAppear { if store.account == nil { settings = true } }
+        MainTabs(openSettings: { settings = true })
+            .background(Palette.background.ignoresSafeArea())
+            .sheet(isPresented: $settings) { SettingsView() }
+            .fullScreenCover(item: $store.vlcSession) { session in
+                VLCPlayerScreen(request: session.request, url: session.url,
+                                onProgress: { store.record(session.request.id, position: $0, duration: $1) },
+                                onClose: { store.saveProgress(); store.vlcSession = nil })
+            }
+            .alert("No se pudo completar", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+                Button("Aceptar", role: .cancel) { store.error = nil }
+            } message: { Text(store.error ?? "") }
+            .task {
+                await BlockCache.shared.configure(megabytes: UserDefaults.standard.object(forKey: "cacheMB") as? Int ?? 2048)
+                await store.checkConnection()
+                store.enrichMetadata()
+            }
+            .onAppear { if store.account == nil { settings = true } }
     }
 }
 
-/// Destinations shared by every navigation stack.
-struct RouteStack<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-    var body: some View {
-        NavigationStack {
-            content().navigationDestination(for: Route.self) { route in
-                switch route {
-                case .movie(let id): MovieDetailView(id: id)
-                case .show(let id): ShowDetailView(id: id)
-                case .list(let title, let ids): TitleGridView(title: title, ids: ids)
-                }
+extension View {
+    /// Destinations shared by every navigation stack.
+    func routeDestinations() -> some View {
+        navigationDestination(for: Route.self) { route in
+            switch route {
+            case .movie(let id): MovieDetailView(id: id)
+            case .show(let id): ShowDetailView(id: id)
+            case .list(let title, let ids): TitleGridView(title: title, ids: ids)
             }
         }
     }
 }
 
-enum AppTab: Hashable {
-    case home, library, search, menu
-    case section(LibrarySection)
-}
-
-/// The same two faces as the sketches: Inicio · Biblioteca · Buscar, and inside Biblioteca
-/// the grid button plus Películas · Series · Videos.
-@available(iOS 18, *)
-struct SystemTabs: View {
+/// One navigation stack per tab, kept alive while hidden so every tab comes back where it
+/// was. The glass bar floats over them and hides inside detail screens.
+struct MainTabs: View {
     var openSettings: () -> Void
     @State private var tab = AppTab.home
-    @State private var library = false
+    @State private var lastMain = AppTab.home
+    @State private var lastSection = LibrarySection.movies
+    @State private var opened: [AppTab] = [.home]
+    @State private var paths: [AppTab: NavigationPath] = [:]
+
+    private var atRoot: Bool { paths[tab]?.isEmpty ?? true }
 
     var body: some View {
-        TabView(selection: $tab) {
-            if library {
-                Tab("Menú", systemImage: "square.grid.2x2.fill", value: AppTab.menu) { Palette.background }
-                ForEach(LibrarySection.allCases) { section in
-                    Tab(section.title, systemImage: section.tabSymbol, value: AppTab.section(section)) {
-                        RouteStack { LibraryView(section: section, openSearch: openSearch) }
+        GeometryReader { geo in
+            ZStack {
+                ForEach(opened, id: \.self) { item in
+                    NavigationStack(path: Binding(get: { paths[item] ?? NavigationPath() }, set: { paths[item] = $0 })) {
+                        screen(item).routeDestinations()
+                    }
+                    .opacity(item == tab ? 1 : 0)
+                    .allowsHitTesting(item == tab)
+                    .accessibilityHidden(item != tab)
+                }
+            }
+            .overlay {
+                VStack(spacing: 0) {
+                    // Keeps the clock readable when content scrolls under the status bar.
+                    LinearGradient(colors: [Palette.background.opacity(0.92), Palette.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: geo.safeAreaInsets.top + 16)
+                        .allowsHitTesting(false)
+                        .opacity(atRoot ? 1 : 0)
+                    Spacer(minLength: 0)
+                    if atRoot {
+                        GlassTabBar(tab: tab, select: select)
+                            .padding(.horizontal, 18)
+                            .padding(.bottom, max(geo.safeAreaInsets.bottom - 14, 12))
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
-            } else {
-                Tab("Inicio", systemImage: "house.fill", value: AppTab.home) { RouteStack { HomeView(openSettings: openSettings) } }
-                Tab("Biblioteca", systemImage: "books.vertical", value: AppTab.library) { Palette.background }
-                Tab("Buscar", systemImage: "magnifyingglass", value: AppTab.search) { RouteStack { SearchView() } }
-            }
-        }
-        .tint(Palette.accent)
-        .onChange(of: tab) { _, selected in
-            switch selected {
-            case .library: withAnimation(.bouncy) { library = true; tab = .section(.movies) }
-            case .menu: withAnimation(.bouncy) { library = false; tab = .home }
-            default: break
+                .ignoresSafeArea()
+                .animation(.easeInOut(duration: 0.2), value: atRoot)
             }
         }
     }
 
-    private func openSearch() { withAnimation(.bouncy) { library = false; tab = .search } }
-}
-
-/// iOS 17: one stack with the custom floating bar on top.
-struct LegacyRoot: View {
-    var openSettings: () -> Void
-    @State private var mode = BarMode.main(.home)
-    @State private var path = NavigationPath()
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            screen
-                .navigationDestination(for: Route.self) { route in
-                    switch route {
-                    case .movie(let id): MovieDetailView(id: id)
-                    case .show(let id): ShowDetailView(id: id)
-                    case .list(let title, let ids): TitleGridView(title: title, ids: ids)
-                    }
-                }
+    @ViewBuilder private func screen(_ item: AppTab) -> some View {
+        switch item {
+        case .home: HomeView(openSettings: openSettings)
+        case .search: SearchView()
+        case .profile: ProfileView(openSettings: openSettings)
+        case .section(let section): LibraryView(section: section, openSearch: { select(.search) })
         }
-        .overlay(alignment: .bottom) {
-            if path.isEmpty {
-                FloatingBar(mode: $mode).padding(.horizontal, 16).offset(y: 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: path.isEmpty)
-        .onChange(of: mode) { _, _ in path = NavigationPath() }
     }
 
-    @ViewBuilder private var screen: some View {
-        switch mode {
-        case .main(.home): HomeView(openSettings: openSettings)
-        case .main(.search): SearchView()
-        case .library(let section): LibraryView(section: section, openSearch: { withAnimation(.snappy) { mode = .main(.search) } })
-        }
+    /// Biblioteca opens the last library section and the menu circle the last main tab;
+    /// tapping the current tab again goes back to its first screen.
+    private func select(_ item: AppTab) {
+        var target = item
+        if item == .section(.movies) && !tab.isLibrary { target = .section(lastSection) }
+        if item == .home && tab.isLibrary { target = lastMain }
+        if target == tab { paths[target] = NavigationPath(); return }
+        if !opened.contains(target) { opened.append(target) }
+        withAnimation(.bouncy(duration: 0.45, extraBounce: 0.08)) { tab = target }
+        if case .section(let section) = target { lastSection = section } else { lastMain = target }
     }
 }
 
-/// Room left at the bottom of scrolling screens: the system tab bar insets the safe area
-/// on its own, the custom floating bar does not.
+/// Room left at the bottom of scrolling screens so the last row clears the floating bar.
 enum BarInset {
-    static var bottom: CGFloat { if #available(iOS 18, *) { return 24 } else { return 110 } }
+    static let bottom: CGFloat = 104
 }
 
-struct FloatingBar: View {
-    @Binding var mode: BarMode
+/// The floating bar: one glass capsule with the tabs and one glass circle beside it that
+/// morphs from the profile (right) to the menu (left) when entering Biblioteca.
+struct GlassTabBar: View {
+    var tab: AppTab
+    var select: (AppTab) -> Void
     @Namespace private var namespace
-    private let spring = Animation.bouncy(duration: 0.45, extraBounce: 0.1)
+    private let height: CGFloat = 62
 
     var body: some View {
-        Group {
-            HStack(spacing: 2) {
-                switch mode {
-                case .main(let tab):
-                    item("Inicio", "house.fill", selected: tab == .home) { mode = .main(.home) }
-                        .matchedGeometryEffect(id: "anchor", in: namespace, isSource: true)
-                    Group {
-                        item("Biblioteca", "books.vertical", selected: false) { mode = .library(.movies) }
-                        item("Buscar", "magnifyingglass", selected: tab == .search) { mode = .main(.search) }
-                    }.transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)), removal: .opacity))
-                case .library:
-                    Button { withAnimation(spring) { mode = .main(.home) } } label: {
-                        Image(systemName: "square.grid.2x2.fill").font(.system(size: 18, weight: .semibold))
-                            .frame(width: 48, height: 48)
-                            .background(Circle().fill(Color.white.opacity(0.1)))
-                            .contentShape(Circle())
+        GlassGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                if tab.isLibrary {
+                    circleButton(label: "Volver al menú principal", action: { select(.home) }) {
+                        Image(systemName: "square.grid.2x2.fill").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Volver al menú principal")
-                    .matchedGeometryEffect(id: "anchor", in: namespace, isSource: true)
-                    ForEach(LibrarySection.allCases) { section in
-                        item(section.title, section.tabSymbol, selected: mode == .library(section)) { mode = .library(section) }
+                    capsule {
+                        ForEach(LibrarySection.allCases) { section in
+                            item(section.title, section.tabSymbol, selected: tab == .section(section)) { select(.section(section)) }
+                        }
                     }
-                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.6, anchor: .leading)),
-                                            removal: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading))))
+                } else {
+                    capsule {
+                        item("Inicio", "house.fill", selected: tab == .home) { select(.home) }
+                        item("Biblioteca", "books.vertical.fill", selected: false) { select(.section(.movies)) }
+                        item("Buscar", "magnifyingglass", selected: tab == .search) { select(.search) }
+                    }
+                    circleButton(label: "Perfil, Mi lista y Descargas", action: { select(.profile) }) {
+                        ProfileAvatar(size: height - 14)
+                            .overlay(Circle().stroke(Palette.accent, lineWidth: tab == .profile ? 2.5 : 0).padding(-3))
+                    }
+                    .accessibilityAddTraits(tab == .profile ? .isSelected : [])
                 }
             }
-            .padding(5)
-            .frame(maxWidth: .infinity)
-            .liquidBar()
         }
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+        .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
         .environment(\.colorScheme, .dark)
     }
 
+    private func capsule<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 0, content: content)
+            .padding(4)
+            .frame(height: height)
+            .frame(maxWidth: .infinity)
+            .glassPiece(Capsule(), id: "capsule", in: namespace)
+    }
+
+    private func circleButton<Label: View>(label: String, action: @escaping () -> Void, @ViewBuilder content: () -> Label) -> some View {
+        Button(action: action) {
+            content().frame(width: height, height: height).contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassPiece(Circle(), id: "circle", in: namespace)
+        .accessibilityLabel(label)
+    }
+
     private func item(_ title: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button { withAnimation(spring) { action() } } label: {
-            HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
-                Text(title).font(.system(size: 14, weight: selected ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.8)
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 19, weight: .semibold)).frame(height: 24)
+                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             .foregroundStyle(selected ? Palette.accent : .white)
-            .padding(.horizontal, 8).frame(height: 48).frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .liquidSelection(selected, in: namespace)
             .contentShape(Capsule())
         }

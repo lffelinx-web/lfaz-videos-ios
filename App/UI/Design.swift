@@ -33,9 +33,9 @@ struct RoundIconButton: View {
         Button(action: action) {
             Image(systemName: systemImage).font(.system(size: 18, weight: .medium))
                 .frame(width: 46, height: 46)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(Palette.stroke))
-        }.buttonStyle(.plain).accessibilityLabel(label)
+                .contentShape(Circle())
+                .glassCircle()
+        }.buttonStyle(.plain).accessibilityLabel(label).environment(\.colorScheme, .dark)
     }
 }
 

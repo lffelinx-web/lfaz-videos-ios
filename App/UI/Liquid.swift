@@ -31,6 +31,35 @@ extension View {
             background(.ultraThinMaterial, in: Capsule()).overlay(Capsule().stroke(Color.white.opacity(0.12)))
         }
     }
+
+    /// A round glass button background.
+    @ViewBuilder func glassCircle() -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.interactive(), in: Circle())
+        } else {
+            background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(Palette.stroke))
+        }
+    }
+
+    /// One piece of a `GlassGroup`; pieces sharing an id morph into each other when the
+    /// layout changes.
+    @ViewBuilder func glassPiece<S: Shape>(_ shape: S, id: String, in namespace: Namespace.ID) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.interactive(), in: shape).glassEffectID(id, in: namespace)
+        } else {
+            background(.ultraThinMaterial, in: shape).overlay(shape.stroke(Color.white.opacity(0.12)))
+                .matchedGeometryEffect(id: id, in: namespace)
+        }
+    }
+}
+
+/// Lets nearby glass pieces blend and morph on iOS 26; a plain group before.
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        if #available(iOS 26, *) { GlassEffectContainer(spacing: spacing) { content() } } else { content() }
+    }
 }
 
 /// Season chips on one glass track with the sliding lens under the selected season.

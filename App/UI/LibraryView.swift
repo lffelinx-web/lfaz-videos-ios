@@ -21,7 +21,7 @@ struct LibraryView: View {
                         Picker("Ordenar", selection: $sort) { ForEach(LibrarySort.allCases) { Text($0.rawValue).tag($0) } }
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease").font(.system(size: 18, weight: .medium))
-                            .frame(width: 46, height: 46).background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(Palette.stroke))
+                            .frame(width: 46, height: 46).glassCircle()
                     }.accessibilityLabel("Ordenar")
                 }
                 .padding(.top, 8)

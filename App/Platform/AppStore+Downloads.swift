@@ -133,4 +133,14 @@ extension AppStore {
     func duration(of clip: MusicVideo) -> Double? {
         durations[clip.id] ?? progress[clip.id].map(\.duration)
     }
+
+    /// Downloaded movies, and the series that have downloaded episodes.
+    var downloadedTitles: [String] {
+        var ids: [String] = []
+        for id in downloadedIDs.sorted() {
+            let title = movie(id) != nil ? id : show(containing: id)?.id
+            if let title, !ids.contains(title) { ids.append(title) }
+        }
+        return ids
+    }
 }
