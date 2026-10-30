@@ -158,7 +158,7 @@ extension AppStore {
         }
         if let show = show(id) {
             let info = metadata[id]
-            return TitleCard(id: id, route: .show(id), title: title(show), detail: dot([countText(show.seasonCount, "temporada", "temporadas"), info?.genres.first]),
+            return TitleCard(id: id, route: .show(id), title: title(show), detail: countText(show.seasonCount, "temporada", "temporadas"),
                              poster: info?.poster, backdrop: info?.backdrop, info: info)
         }
         return nil

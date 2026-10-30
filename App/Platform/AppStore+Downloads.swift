@@ -112,3 +112,25 @@ extension AppStore {
         return urls.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
     }
 }
+
+extension AppStore {
+    var durationsName: String { "durations-" + String(Files.key(account?.scope ?? "none").prefix(16)) + ".json" }
+
+    /// Reads a music video's length once, so the grid shows it before it is played.
+    func probeDuration(_ clip: MusicVideo) async {
+        guard durations[clip.id] == nil, !probing.contains(clip.id), let account else { return }
+        if durations.isEmpty, let saved = Files.load(durationsName, as: [String: Double].self) {
+            durations = saved
+            if durations[clip.id] != nil { return }
+        }
+        probing.insert(clip.id)
+        defer { probing.remove(clip.id) }
+        guard let seconds = await FrameGrabber.duration(clip.file, account: account) else { return }
+        durations[clip.id] = seconds
+        try? Files.save(durations, name: durationsName)
+    }
+
+    func duration(of clip: MusicVideo) -> Double? {
+        durations[clip.id] ?? progress[clip.id].map(\.duration)
+    }
+}

@@ -17,23 +17,33 @@ struct DetailHeader<Actions: View>: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Artwork(source: info?.backdrop ?? info?.poster, title: title, maxPixels: 1600)
-                .frame(height: 560).frame(maxWidth: .infinity).clipped()
-            LinearGradient(stops: [.init(color: .black.opacity(0.5), location: 0), .init(color: .clear, location: 0.3),
-                                   .init(color: .clear, location: 0.5), .init(color: Palette.background, location: 1)],
+                .frame(height: 540).frame(maxWidth: .infinity).clipped()
+            LinearGradient(stops: [.init(color: .black.opacity(0.55), location: 0), .init(color: .clear, location: 0.25),
+                                   .init(color: .clear, location: 0.38), .init(color: Palette.background.opacity(0.75), location: 0.68),
+                                   .init(color: Palette.background, location: 1)],
                            startPoint: .top, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 12) {
-                Text(title.uppercased()).font(.system(size: 32, weight: .regular, design: .serif)).kerning(7)
-                    .lineLimit(2).minimumScaleFactor(0.55)
+            VStack(alignment: .leading, spacing: 10) {
+                // Long titles get a smaller size and tighter spacing instead of being squeezed.
+                let long = title.count > 26
+                let medium = title.count > 14
+                Text(title.uppercased())
+                    .font(.system(size: long ? 22 : medium ? 27 : 34, weight: .regular, design: .serif))
+                    .kerning(long ? 2.5 : medium ? 4 : 7)
+                    .lineLimit(3).minimumScaleFactor(0.7).fixedSize(horizontal: false, vertical: true)
+                    .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
                 if let original = info?.originalTitle, original.searchKey != title.searchKey {
-                    Text(original.uppercased()).font(.caption).kerning(5).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
+                    Text(original.uppercased()).font(.caption2.weight(.medium)).kerning(3)
+                        .foregroundStyle(.white.opacity(0.7)).lineLimit(2)
                 }
-                Text(meta).font(.subheadline).foregroundStyle(.white.opacity(0.85))
-                if !badges.isEmpty { HStack(spacing: 8) { ForEach(badges, id: \.self) { QualityBadge(text: $0) } } }
-                actions().padding(.top, 4)
+                HStack(spacing: 10) {
+                    Text(meta).font(.subheadline).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                    ForEach(badges.prefix(3), id: \.self) { QualityBadge(text: $0) }
+                }
+                actions().padding(.top, 6)
             }
             .padding(.horizontal, 20)
         }
-        .frame(height: 560, alignment: .bottom)
+        .frame(height: 540, alignment: .bottom)
         .sheet(isPresented: $showMatch) { MatchSheet(id: id) }
         .overlay(alignment: .top) {
             HStack {
@@ -443,8 +453,9 @@ struct ShowDetailView: View {
         info?.episode(season: episode.season, number: episode.number)?.name.nonEmpty ?? episode.title
     }
 
+    /// Season chips scroll on their own row; the episode count sits underneath so it never covers a chip.
     private func seasonPicker(_ show: Show, current: Int) -> some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(show.seasons) { season in
@@ -455,10 +466,11 @@ struct ShowDetailView: View {
                                 .background(season.number == current ? Color.white.opacity(0.92) : Palette.surface, in: Capsule())
                         }.buttonStyle(.plain)
                     }
-                }
+                }.padding(.horizontal, 20)
             }
+            .padding(.horizontal, -20)
             Text(countText(show.seasons.first { $0.number == current }?.episodes.count ?? 0, "episodio", "episodios"))
-                .font(.caption).foregroundStyle(Palette.secondaryText).fixedSize()
+                .font(.caption).foregroundStyle(Palette.secondaryText)
         }
     }
 

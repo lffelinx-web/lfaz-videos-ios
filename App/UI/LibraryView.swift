@@ -114,7 +114,7 @@ struct ClipGrid: View {
                             .overlay { Artwork(source: clip.thumbnail.map { ImageSource.nas($0) } ?? .frame(clip.file), title: clip.artist) }
                             .overlay { if store.opening == clip.id { ProgressView() } }
                             .overlay(alignment: .bottomTrailing) {
-                                if let duration = store.progress[clip.id]?.duration, duration > 1 {
+                                if let duration = store.duration(of: clip), duration > 1 {
                                     Text(clockText(duration)).font(.caption2.weight(.semibold).monospacedDigit())
                                         .padding(.horizontal, 6).padding(.vertical, 3).background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6)).padding(6)
                                 }
@@ -136,6 +136,7 @@ struct ClipGrid: View {
                         }.foregroundStyle(Palette.secondaryText).accessibilityLabel("Más opciones")
                     }
                 }
+                .task(id: clip.id) { await store.probeDuration(clip) }
             }
         }
     }

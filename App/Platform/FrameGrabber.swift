@@ -19,6 +19,28 @@ enum FrameGrabber {
         return image.flatMap { UIImage(cgImage: $0).jpegData(compressionQuality: 0.8) }
     }
 
+    /// Length in seconds, read from the file's header through the local server.
+    static func duration(_ file: VideoFile, account: NASAccount) async -> Double? {
+        await gate.wait()
+        defer { Task { await gate.signal() } }
+        guard let url = try? await StreamServer.shared.url(for: file, account: account) else { return nil }
+        if file.native {
+            guard let time = try? await AVURLAsset(url: url).load(.duration), time.seconds.isFinite, time.seconds > 0 else { return nil }
+            return time.seconds
+        }
+        #if canImport(MobileVLCKit)
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let media = VLCMedia(url: url)
+                let length = Double(media.lengthWait(until: Date().addingTimeInterval(15)).intValue) / 1000
+                continuation.resume(returning: length > 0 ? length : nil)
+            }
+        }
+        #else
+        return nil
+        #endif
+    }
+
     private static func native(_ url: URL) async -> CGImage? {
         let asset = AVURLAsset(url: url)
         guard let duration = try? await asset.load(.duration), duration.seconds.isFinite, duration.seconds > 0 else { return nil }

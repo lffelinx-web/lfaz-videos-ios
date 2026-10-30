@@ -44,7 +44,7 @@ struct RootView: View {
         }
         .overlay(alignment: .bottom) {
             if path.isEmpty {
-                FloatingBar(mode: $mode).padding(.horizontal, 16).padding(.bottom, 4)
+                FloatingBar(mode: $mode).padding(.bottom, 4)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -83,7 +83,7 @@ struct FloatingBar: View {
     private let spring = Animation.spring(response: 0.45, dampingFraction: 0.82)
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             switch mode {
             case .main(let tab):
                 item("Inicio", "house.fill", selected: tab == .home) { mode = .main(.home) }
@@ -95,7 +95,7 @@ struct FloatingBar: View {
             case .library:
                 Button { withAnimation(spring) { mode = .main(.home) } } label: {
                     Image(systemName: "square.grid.2x2.fill").font(.title3)
-                        .frame(width: 56, height: 56)
+                        .frame(width: 48, height: 48)
                         .background(Circle().fill(Color.white.opacity(0.08)))
                         .overlay(Circle().stroke(Palette.stroke))
                 }
@@ -109,7 +109,7 @@ struct FloatingBar: View {
                                         removal: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading))))
             }
         }
-        .padding(6)
+        .padding(5)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.12)))
         .shadow(color: .black.opacity(0.4), radius: 18, y: 8)
@@ -119,11 +119,11 @@ struct FloatingBar: View {
     private func item(_ title: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button { withAnimation(spring) { action() } } label: {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
-                Text(title).font(.subheadline.weight(selected ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.75)
+                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+                Text(title).font(.system(size: 14, weight: selected ? .semibold : .regular)).lineLimit(1).fixedSize()
             }
             .foregroundStyle(selected ? Palette.accent : .white)
-            .padding(.horizontal, 10).frame(height: 56).frame(maxWidth: .infinity)
+            .padding(.horizontal, 12).frame(height: 48)
             .background {
                 if selected {
                     Capsule().fill(Palette.accent.opacity(0.22)).overlay(Capsule().stroke(Palette.accent.opacity(0.6)))

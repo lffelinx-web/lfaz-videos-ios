@@ -27,6 +27,8 @@ final class AppStore: ObservableObject {
     var activeDownload: String?
     var downloadTask: Task<Void, Never>?
     var wholeCacheTask: Task<Void, Never>?
+    @Published var durations: [String: Double] = [:]
+    var probing: Set<String> = []
     private var scanTask: Task<Void, Never>?
 
     private var libraryName: String { "library-" + String(Files.key(account?.scope ?? "none").prefix(16)) + ".json" }
