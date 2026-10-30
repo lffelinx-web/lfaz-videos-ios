@@ -12,6 +12,7 @@ struct DetailHeader<Actions: View>: View {
     var info: MediaInfo?
     @ViewBuilder var actions: () -> Actions
     @Environment(\.dismiss) private var dismiss
+    @State private var showMatch = false
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -33,13 +34,17 @@ struct DetailHeader<Actions: View>: View {
             .padding(.horizontal, 20)
         }
         .frame(height: 560, alignment: .bottom)
+        .sheet(isPresented: $showMatch) { MatchSheet(id: id) }
         .overlay(alignment: .top) {
             HStack {
                 RoundIconButton(systemImage: "chevron.left", label: "Atrás") { dismiss() }
                 Spacer()
                 RoutePicker().frame(width: 46, height: 46).background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(Palette.stroke))
                     .accessibilityLabel("AirPlay")
-                Menu { TitleMenu(id: id) } label: {
+                Menu {
+                    TitleMenu(id: id)
+                    Button("Corregir información", systemImage: "wand.and.stars") { showMatch = true }
+                } label: {
                     Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold))
                         .frame(width: 46, height: 46).background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(Palette.stroke))
                 }.accessibilityLabel("Más opciones")

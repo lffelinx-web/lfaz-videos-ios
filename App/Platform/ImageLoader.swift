@@ -5,11 +5,14 @@ import ImageIO
 enum ImageSource: Hashable {
     case tmdb(String, size: String)
     case nas(URL)
+    /// A still taken from the video itself.
+    case frame(VideoFile)
 
     var key: String {
         switch self {
         case .tmdb(let path, let size): return "tmdb\(size)\(path)"
         case .nas(let url): return "nas" + url.absoluteString
+        case .frame(let file): return "frame" + file.url.absoluteString
         }
     }
 }
@@ -57,6 +60,9 @@ actor ImageLoader {
         case .nas(let url):
             guard let account else { return nil }
             return try? await NASTransport(account).request(url, limit: 15_000_000).data
+        case .frame(let file):
+            guard let account else { return nil }
+            return await FrameGrabber.jpeg(file, account: account)
         }
     }
 

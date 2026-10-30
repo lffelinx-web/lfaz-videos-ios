@@ -52,22 +52,34 @@ struct TMDBClient {
     func verify() async throws { _ = try await get("/configuration", as: Empty.self) }
 
     func movie(title: String, year: Int?) async throws -> MediaInfo? {
-        var results = try await get("/search/movie", [URLQueryItem(name: "query", value: title), URLQueryItem(name: "include_adult", value: "false")] + (year.map { [URLQueryItem(name: "year", value: String($0))] } ?? []), as: Page.self).results
-        if results.isEmpty, year != nil { results = try await get("/search/movie", [URLQueryItem(name: "query", value: title)], as: Page.self).results }
-        guard let id = results.first?.id else { return nil }
-        let detail = try await get("/movie/\(id)", [URLQueryItem(name: "append_to_response", value: "credits,images"), URLQueryItem(name: "include_image_language", value: "null")], as: Detail.self)
-        var info = detail.info(kind: .movie)
-        if info.overview.isEmpty { info.overview = (try? await englishOverview("/movie/\(id)")) ?? "" }
-        return info
+        guard let match = TMDBCandidate.best(try await search(.movie, query: title, year: year), query: title, year: year) else { return nil }
+        return try await details(.movie, id: match.id)
     }
 
     func show(title: String, year: Int?) async throws -> MediaInfo? {
-        var results = try await get("/search/tv", [URLQueryItem(name: "query", value: title)] + (year.map { [URLQueryItem(name: "first_air_date_year", value: String($0))] } ?? []), as: Page.self).results
-        if results.isEmpty, year != nil { results = try await get("/search/tv", [URLQueryItem(name: "query", value: title)], as: Page.self).results }
-        guard let id = results.first?.id else { return nil }
-        let detail = try await get("/tv/\(id)", [URLQueryItem(name: "append_to_response", value: "credits,images"), URLQueryItem(name: "include_image_language", value: "null")], as: Detail.self)
-        var info = detail.info(kind: .tv)
-        if info.overview.isEmpty { info.overview = (try? await englishOverview("/tv/\(id)")) ?? "" }
+        guard let match = TMDBCandidate.best(try await search(.tv, query: title, year: year), query: title, year: year) else { return nil }
+        return try await details(.tv, id: match.id)
+    }
+
+    /// Search results, first filtered by year and then without it if that finds nothing.
+    func search(_ kind: MediaInfo.Kind, query: String, year: Int? = nil) async throws -> [TMDBCandidate] {
+        let path = kind == .movie ? "/search/movie" : "/search/tv"
+        let yearKey = kind == .movie ? "year" : "first_air_date_year"
+        let base = [URLQueryItem(name: "query", value: query), URLQueryItem(name: "include_adult", value: "false")]
+        var results = try await get(path, base + (year.map { [URLQueryItem(name: yearKey, value: String($0))] } ?? []), as: Page.self).results
+        if results.isEmpty, year != nil { results = try await get(path, base, as: Page.self).results }
+        return results.map { item in
+            TMDBCandidate(id: item.id, kind: kind, title: item.title ?? item.name ?? "", originalTitle: item.original_title ?? item.original_name,
+                          year: Int((item.release_date ?? item.first_air_date ?? "").prefix(4)), posterPath: item.poster_path,
+                          overview: item.overview ?? "", popularity: item.popularity ?? 0)
+        }
+    }
+
+    func details(_ kind: MediaInfo.Kind, id: Int) async throws -> MediaInfo {
+        let path = (kind == .movie ? "/movie/" : "/tv/") + String(id)
+        let detail = try await get(path, [URLQueryItem(name: "append_to_response", value: "credits,images"), URLQueryItem(name: "include_image_language", value: "null")], as: Detail.self)
+        var info = detail.info(kind: kind)
+        if info.overview.isEmpty { info.overview = (try? await englishOverview(path)) ?? "" }
         return info
     }
 
@@ -90,7 +102,15 @@ struct TMDBClient {
     // MARK: Responses
 
     private struct Empty: Decodable {}
-    private struct Page: Decodable { struct Item: Decodable { let id: Int }; let results: [Item] }
+    private struct Page: Decodable {
+        struct Item: Decodable {
+            let id: Int
+            let title: String?, name: String?, original_title: String?, original_name: String?
+            let release_date: String?, first_air_date: String?
+            let poster_path: String?, overview: String?, popularity: Double?
+        }
+        let results: [Item]
+    }
     private struct Named: Decodable { let name: String }
     private struct Language: Decodable { let iso_639_1: String }
     private struct Collection: Decodable { let id: Int; let name: String }
@@ -135,5 +155,31 @@ struct TMDBClient {
                 directors: Array(directors.prefix(3)), languages: Array(languages.prefix(4)),
                 collectionID: belongs_to_collection?.id, collectionName: belongs_to_collection?.name)
         }
+    }
+}
+
+/// One search result, as shown in "Corregir información".
+struct TMDBCandidate: Identifiable, Equatable {
+    var id: Int
+    var kind: MediaInfo.Kind
+    var title: String
+    var originalTitle: String?
+    var year: Int?
+    var posterPath: String?
+    var overview: String
+    var popularity: Double
+
+    /// TMDB orders by its own relevance, which puts "Dark Shadows" above "Dark": prefer
+    /// an exact title, then the year from the file name, then popularity.
+    static func best(_ candidates: [TMDBCandidate], query: String, year: Int?) -> TMDBCandidate? {
+        let key = query.searchKey
+        func score(_ candidate: TMDBCandidate) -> Double {
+            let titles = [candidate.title.searchKey, candidate.originalTitle?.searchKey ?? ""]
+            var value = 0.0
+            if titles.contains(key) { value += 100 } else if titles.contains(where: { $0.hasPrefix(key) }) { value += 15 }
+            if let year, let found = candidate.year { value += found == year ? 60 : abs(found - year) == 1 ? 30 : 0 }
+            return value + min(candidate.popularity, 100) / 5
+        }
+        return candidates.prefix(10).max { score($0) < score($1) }
     }
 }

@@ -3,12 +3,16 @@ import Foundation
 private struct SavedMetadata: Codable {
     var items: [String: MediaInfo] = [:]
     var unmatched: Set<String> = []
+    /// Bumped when matching improves, so earlier guesses are looked up again.
+    var version: Int? = SavedMetadata.currentVersion
+    static let currentVersion = 2
 }
 
 /// TMDB metadata, "Mi lista" and the lookups the screens use.
 extension AppStore {
     func loadExtras() {
-        let saved = Files.load(metadataName, as: SavedMetadata.self) ?? SavedMetadata()
+        var saved = Files.load(metadataName, as: SavedMetadata.self) ?? SavedMetadata()
+        if saved.version != SavedMetadata.currentVersion { saved = SavedMetadata() }
         metadata = saved.items; unmatched = saved.unmatched
         watchlist = Files.load(watchlistName, as: Set<String>.self) ?? []
     }
@@ -76,6 +80,26 @@ extension AppStore {
         return false
     }
 
+
+    // MARK: Manual matches
+
+    /// Search used by "Corregir información", in the title's own kind.
+    func searchTMDB(for id: String, query: String) async -> [TMDBCandidate] {
+        guard let token = TMDBCredential.load() else { error = "Añade la clave de TMDB en Ajustes."; return [] }
+        do { return try await TMDBClient(token: token).search(show(id) != nil ? .tv : .movie, query: query) }
+        catch { self.error = error.localizedDescription; return [] }
+    }
+
+    func applyMatch(_ candidate: TMDBCandidate, to id: String) async -> Bool {
+        guard let token = TMDBCredential.load() else { return false }
+        let client = TMDBClient(token: token)
+        do {
+            var info = try await client.details(candidate.kind, id: candidate.id)
+            if let show = show(id) { info.seasons = try await client.seasons(show.seasons.map(\.number), of: info) }
+            metadata[id] = info; unmatched.remove(id); saveMetadata()
+            return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
     // MARK: Mi lista and watched state
 
     func toggleWatchlist(_ id: String) {

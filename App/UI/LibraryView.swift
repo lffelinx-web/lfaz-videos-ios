@@ -111,7 +111,7 @@ struct ClipGrid: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Button { store.play(store.request(clip: clip)) } label: {
                         Color.clear.aspectRatio(16 / 9, contentMode: .fit)
-                            .overlay { Artwork(source: clip.thumbnail.map { ImageSource.nas($0) }, title: clip.artist) }
+                            .overlay { Artwork(source: clip.thumbnail.map { ImageSource.nas($0) } ?? .frame(clip.file), title: clip.artist) }
                             .overlay { if store.opening == clip.id { ProgressView() } }
                             .overlay(alignment: .bottomTrailing) {
                                 if let duration = store.progress[clip.id]?.duration, duration > 1 {

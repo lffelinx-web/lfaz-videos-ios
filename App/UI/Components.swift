@@ -10,14 +10,18 @@ struct Artwork: View {
     @State private var image: UIImage?
 
     var body: some View {
-        ZStack {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                LinearGradient(colors: [Color(red: 0.13, green: 0.16, blue: 0.24), Color(red: 0.06, green: 0.07, blue: 0.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if !title.isEmpty {
-                    Text(title.uppercased()).font(.system(size: 13, weight: .medium, design: .serif)).kerning(2)
-                        .multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.75)).padding(10)
+        // The image fills whatever space it is offered but never asks for more:
+        // a scaled-to-fill backdrop would otherwise widen the whole screen.
+        Color.clear.overlay {
+            ZStack {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: [Color(red: 0.13, green: 0.16, blue: 0.24), Color(red: 0.06, green: 0.07, blue: 0.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    if !title.isEmpty {
+                        Text(title.uppercased()).font(.system(size: 13, weight: .medium, design: .serif)).kerning(2)
+                            .multilineTextAlignment(.center).foregroundStyle(.white.opacity(0.75)).padding(10)
+                    }
                 }
             }
         }
@@ -168,7 +172,8 @@ extension AppStore {
                let still = info.episode(season: episode.season, number: episode.number)?.stillPath { return .tmdb(still, size: "w780") }
             return info.wideThumb
         }
-        return library.videos.first { $0.id == id }?.thumbnail.map { ImageSource.nas($0) }
+        guard let clip = library.videos.first(where: { $0.id == id }) else { return nil }
+        return clip.thumbnail.map { ImageSource.nas($0) } ?? .frame(clip.file)
     }
 }
 
