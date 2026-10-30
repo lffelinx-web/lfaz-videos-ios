@@ -33,9 +33,9 @@ extension View {
     }
 
     /// A round glass button background.
-    @ViewBuilder func glassCircle() -> some View {
+    @ViewBuilder func glassCircle(clear: Bool = false) -> some View {
         if #available(iOS 26, *) {
-            glassEffect(.regular.interactive(), in: Circle())
+            glassEffect(clear ? .clear.interactive() : .regular.interactive(), in: Circle())
         } else {
             background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(Palette.stroke))
         }

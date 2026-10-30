@@ -29,12 +29,15 @@ struct RoundIconButton: View {
     var systemImage: String
     var label: String
     var action: () -> Void
+    var size: CGFloat = 46
+    /// Clear glass, for buttons that sit on artwork.
+    var clear = false
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage).font(.system(size: 18, weight: .medium))
-                .frame(width: 46, height: 46)
+            Image(systemName: systemImage).font(.system(size: size * 0.39, weight: .medium))
+                .frame(width: size, height: size)
                 .contentShape(Circle())
-                .glassCircle()
+                .glassCircle(clear: clear)
         }.buttonStyle(.plain).accessibilityLabel(label).environment(\.colorScheme, .dark)
     }
 }

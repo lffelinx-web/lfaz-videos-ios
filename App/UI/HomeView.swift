@@ -4,6 +4,8 @@ struct HomeView: View {
     @EnvironmentObject var store: AppStore
     var openSettings: () -> Void
     @ObservedObject private var profile = Profile.shared
+    /// True once the header has scrolled away, to show the compact glass bar.
+    @State private var scrolled = false
 
     var body: some View {
         ScrollView {
@@ -22,17 +24,58 @@ struct HomeView: View {
                 PosterRow(title: "Agregados recientemente", ids: store.recentlyAdded)
             }
             .padding(.bottom, BarInset.bottom)
+            .background {
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.frame(in: .named("home")).minY < -140) { _, value in
+                        withAnimation(.easeInOut(duration: 0.2)) { scrolled = value }
+                    }
+                }
+            }
         }
+        .coordinateSpace(.named("home"))
+        .scrollIndicators(.hidden)
         .ignoresSafeArea(edges: store.featured.isEmpty ? [] : .top)
+        .overlay(alignment: .top) { if scrolled { compactBar.transition(.opacity) } }
         .background(Palette.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .refreshable { store.synchronize() }
     }
 
+    /// Logo and settings on one line with the greeting under the logo; the shadow keeps
+    /// them readable on any artwork.
     private var header: some View {
-        ScreenHeader(title: nil, subtitle: profile.firstName.map { "Hola, " + $0 }) {
-            RoundIconButton(systemImage: "gearshape.fill", label: "Ajustes", action: openSettings)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Brand()
+                Spacer()
+                settingsButton
+            }
+            if let name = profile.firstName {
+                Text("Hola, " + name).font(.title3.weight(.semibold)).foregroundStyle(.white)
+            }
         }
+        .padding(.horizontal, 20)
+        .shadow(color: .black.opacity(0.5), radius: 8, y: 1)
+    }
+
+    private var settingsButton: some View {
+        RoundIconButton(systemImage: "gearshape.fill", label: "Ajustes", action: openSettings, size: 40, clear: true)
+    }
+
+    /// Stays at the top while scrolling, under the status bar.
+    private var compactBar: some View {
+        HStack {
+            Brand().scaleEffect(0.85, anchor: .leading)
+            Spacer()
+            settingsButton
+        }
+        .padding(.horizontal, 20).padding(.vertical, 6)
+        .background {
+            Rectangle().fill(.ultraThinMaterial)
+                .overlay(alignment: .bottom) { Rectangle().fill(Palette.stroke).frame(height: 0.5) }
+                .ignoresSafeArea(edges: .top)
+        }
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -82,7 +125,7 @@ struct FeaturedCarousel: View {
     private func slide(_ card: TitleCard) -> some View {
         ZStack(alignment: .bottomLeading) {
             Artwork(source: card.backdrop, maxPixels: 1600).frame(height: 600).frame(maxWidth: .infinity).clipped()
-            LinearGradient(stops: [.init(color: .black.opacity(0.55), location: 0), .init(color: .clear, location: 0.25),
+            LinearGradient(stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .black.opacity(0.3), location: 0.16), .init(color: .clear, location: 0.3),
                                    .init(color: .clear, location: 0.45), .init(color: Palette.background, location: 1)],
                            startPoint: .top, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 10) {

@@ -143,40 +143,53 @@ struct GlassTabBar: View {
     var tab: AppTab
     var select: (AppTab) -> Void
     @Namespace private var namespace
+    /// Where the floating lens is while a finger slides over the tabs, in bar coordinates.
+    @State private var lens: CGRect?
     private let height: CGFloat = 62
+    private let circle: CGFloat = 56
 
     var body: some View {
         GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
                 if tab.isLibrary {
                     circleButton(label: "Volver al menú principal", action: { select(.home) }) {
-                        Image(systemName: "square.grid.2x2.fill").font(.system(size: 20, weight: .semibold)).foregroundStyle(.white)
+                        Image(systemName: "square.grid.2x2.fill").font(.system(size: 19, weight: .semibold)).foregroundStyle(.white)
                     }
-                    capsule {
-                        ForEach(LibrarySection.allCases) { section in
-                            item(section.title, section.tabSymbol, selected: tab == .section(section)) { select(.section(section)) }
-                        }
-                    }
+                    capsule(LibrarySection.allCases.map { section in
+                        TabItem(title: section.title, symbol: section.tabSymbol, selected: tab == .section(section)) { select(.section(section)) }
+                    })
                 } else {
-                    capsule {
-                        item("Inicio", "house.fill", selected: tab == .home) { select(.home) }
-                        item("Biblioteca", "books.vertical.fill", selected: false) { select(.section(.movies)) }
-                        item("Buscar", "magnifyingglass", selected: tab == .search) { select(.search) }
-                    }
+                    capsule([
+                        TabItem(title: "Inicio", symbol: "house.fill", selected: tab == .home) { select(.home) },
+                        TabItem(title: "Biblioteca", symbol: "books.vertical.fill", selected: false) { select(.section(.movies)) },
+                        TabItem(title: "Buscar", symbol: "magnifyingglass", selected: tab == .search) { select(.search) },
+                    ])
                     circleButton(label: "Perfil, Mi lista y Descargas", action: { select(.profile) }) {
-                        ProfileAvatar(size: height - 14)
+                        ProfileAvatar(size: 42)
                             .overlay(Circle().stroke(Palette.accent, lineWidth: tab == .profile ? 2.5 : 0).padding(-3))
                     }
                     .accessibilityAddTraits(tab == .profile ? .isSelected : [])
                 }
             }
         }
+        .coordinateSpace(.named("bar"))
+        // The lens sits outside the glass group so it floats over the capsule instead of
+        // melting into it.
+        .overlay(alignment: .topLeading) {
+            if let lens {
+                DragLens()
+                    .frame(width: lens.width, height: lens.height)
+                    .offset(x: lens.minX, y: lens.minY)
+                    .allowsHitTesting(false)
+                    .transition(.scale(scale: 0.7).combined(with: .opacity))
+            }
+        }
         .shadow(color: .black.opacity(0.3), radius: 14, y: 6)
         .environment(\.colorScheme, .dark)
     }
 
-    private func capsule<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 0, content: content)
+    private func capsule(_ items: [TabItem]) -> some View {
+        TabCapsule(items: items, lens: $lens)
             .padding(4)
             .frame(height: height)
             .frame(maxWidth: .infinity)
@@ -185,26 +198,97 @@ struct GlassTabBar: View {
 
     private func circleButton<Label: View>(label: String, action: @escaping () -> Void, @ViewBuilder content: () -> Label) -> some View {
         Button(action: action) {
-            content().frame(width: height, height: height).contentShape(Circle())
+            content().frame(width: circle, height: circle).contentShape(Circle())
         }
         .buttonStyle(.plain)
         .glassPiece(Circle(), id: "circle", in: namespace)
         .accessibilityLabel(label)
     }
+}
 
-    private func item(_ title: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: symbol).font(.system(size: 19, weight: .semibold)).frame(height: 24)
-                Text(title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+struct TabItem {
+    var title: String
+    var symbol: String
+    var selected: Bool
+    var action: () -> Void
+}
+
+/// The tabs inside the capsule. Touching shows a glass lens under the finger that can be
+/// slid across the tabs, as in the system tab bar; lifting the finger selects the tab under it.
+struct TabCapsule: View {
+    var items: [TabItem]
+    @Binding var lens: CGRect?
+    @State private var dragX: CGFloat?
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width / CGFloat(max(items.count, 1))
+            let selected = items.firstIndex { $0.selected }
+            let highlighted = dragX.map { index(at: $0, width: width) } ?? selected
+            ZStack(alignment: .leading) {
+                if dragX == nil, let selected {
+                    Capsule().fill(Color.white.opacity(0.16))
+                        .overlay(Capsule().stroke(Color.white.opacity(0.22), lineWidth: 0.5))
+                        .frame(width: width)
+                        .offset(x: width * CGFloat(selected))
+                }
+                HStack(spacing: 0) {
+                    ForEach(items.indices, id: \.self) { i in
+                        label(items[i], highlighted: i == highlighted).frame(width: width)
+                    }
+                }
             }
-            .foregroundStyle(selected ? Palette.accent : .white)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .liquidSelection(selected, in: namespace)
-            .contentShape(Capsule())
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let x = min(max(value.location.x, width / 2), geo.size.width - width / 2)
+                        let frame = geo.frame(in: .named("bar"))
+                        let rect = CGRect(x: frame.minX + x - width / 2 - 6, y: frame.minY - 8, width: width + 12, height: frame.height + 16)
+                        if dragX == nil {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { dragX = x; lens = rect }
+                        } else {
+                            dragX = x; lens = rect
+                        }
+                    }
+                    .onEnded { value in
+                        let item = items[index(at: value.location.x, width: width)]
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.75)) { dragX = nil; lens = nil }
+                        item.action()
+                    }
+            )
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func index(at x: CGFloat, width: CGFloat) -> Int {
+        min(max(Int(x / width), 0), items.count - 1)
+    }
+
+    private func label(_ item: TabItem, highlighted: Bool) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: item.symbol).font(.system(size: 19, weight: .semibold)).frame(height: 24)
+            Text(item.title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(highlighted ? Palette.accent : .white)
+        .frame(maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.title)
+        .accessibilityAddTraits(item.selected ? [.isButton, .isSelected] : [.isButton])
+        .accessibilityAction { item.action() }
+    }
+}
+
+/// The bubble of clear glass that follows the finger over the tabs.
+struct DragLens: View {
+    var body: some View {
+        if #available(iOS 26, *) {
+            Color.clear
+                .glassEffect(.clear.tint(.white.opacity(0.06)).interactive(), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.75))
+        } else {
+            Capsule().fill(Color.white.opacity(0.18)).overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 1))
+        }
     }
 }
 
