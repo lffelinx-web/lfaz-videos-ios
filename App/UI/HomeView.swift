@@ -3,7 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var store: AppStore
     var openSettings: () -> Void
-    var openSearch: () -> Void
+    @ObservedObject private var profile = Profile.shared
 
     var body: some View {
         ScrollView {
@@ -42,12 +42,8 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        ScreenHeader(title: nil, subtitle: nil) {
-            RoundIconButton(systemImage: "magnifyingglass", label: "Buscar", action: openSearch)
-            Button(action: openSettings) {
-                Image(systemName: "person.crop.circle.fill").font(.system(size: 30)).symbolRenderingMode(.hierarchical)
-                    .frame(width: 46, height: 46).background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(Palette.stroke))
-            }.buttonStyle(.plain).accessibilityLabel("Ajustes")
+        ScreenHeader(title: nil, subtitle: profile.firstName.map { "Hola, " + $0 }) {
+            Button(action: openSettings) { ProfileAvatar(size: 46) }.buttonStyle(.plain).accessibilityLabel("Perfil y ajustes")
         }
     }
 }

@@ -74,22 +74,22 @@ struct ActionRow: View {
     var play: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Button(action: play) {
-                HStack {
-                    if playing { ProgressView().tint(.black) } else { Image(systemName: "play.fill") }
+                HStack(spacing: 6) {
+                    if playing { ProgressView().tint(.black) } else { Image(systemName: "play.fill").font(.subheadline) }
                     Text(playTitle).lineLimit(1).minimumScaleFactor(0.8)
                 }
-                .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 14)
-                .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 12)).foregroundStyle(.black)
+                .font(.subheadline.weight(.semibold)).padding(.horizontal, 12).frame(maxWidth: .infinity).frame(height: 44)
+                .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 22)).foregroundStyle(.black)
             }.buttonStyle(.plain)
             Button { store.toggleWatchlist(id) } label: {
                 Label(store.watchlist.contains(id) ? "En mi lista" : "Añadir", systemImage: store.watchlist.contains(id) ? "checkmark" : "plus")
-                    .font(.headline).padding(.vertical, 14).padding(.horizontal, 16)
-                    .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.stroke))
+                    .font(.subheadline.weight(.semibold)).padding(.horizontal, 14).frame(height: 44)
+                    .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 22))
+                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(Palette.stroke))
             }.buttonStyle(.plain)
-            DownloadButton(id: downloadID ?? id)
+            DownloadButton(id: downloadID ?? id, size: 44)
         }
     }
 }
@@ -456,19 +456,8 @@ struct ShowDetailView: View {
     /// Season chips scroll on their own row; the episode count sits underneath so it never covers a chip.
     private func seasonPicker(_ show: Show, current: Int) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(show.seasons) { season in
-                        Button { withAnimation(.snappy) { self.season = season.number } } label: {
-                            Text(season.title).font(.subheadline.weight(season.number == current ? .semibold : .regular))
-                                .padding(.horizontal, 14).padding(.vertical, 8)
-                                .foregroundStyle(season.number == current ? .black : .white)
-                                .background(season.number == current ? Color.white.opacity(0.92) : Palette.surface, in: Capsule())
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(.horizontal, 20)
-            }
-            .padding(.horizontal, -20)
+            LiquidChips(items: show.seasons.map { (id: $0.number, title: $0.title) },
+                        selection: Binding(get: { current }, set: { season = $0 }))
             Text(countText(show.seasons.first { $0.number == current }?.episodes.count ?? 0, "episodio", "episodios"))
                 .font(.caption).foregroundStyle(Palette.secondaryText)
         }

@@ -22,6 +22,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                ProfileSection()
                 Section {
                     TextField("https://tu-nas.synology.me:5006/video/", text: $address).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                     TextField("Usuario", text: $user).textInputAutocapitalization(.never).autocorrectionDisabled().textContentType(.username)
