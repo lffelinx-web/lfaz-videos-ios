@@ -46,6 +46,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LF’AZ Videos se conecta a tu Synology para explorar y reproducir tus películas, series y videos.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

@@ -17,7 +17,7 @@ struct DetailHeader<Actions: View>: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Artwork(source: info?.backdrop ?? info?.poster, title: title, maxPixels: 1600)
-                .frame(height: 470).frame(maxWidth: .infinity).clipped()
+                .frame(height: 560).frame(maxWidth: .infinity).clipped()
             LinearGradient(stops: [.init(color: .black.opacity(0.5), location: 0), .init(color: .clear, location: 0.3),
                                    .init(color: .clear, location: 0.5), .init(color: Palette.background, location: 1)],
                            startPoint: .top, endPoint: .bottom)
@@ -59,8 +59,9 @@ struct ActionRow: View {
     var id: String
     var playTitle: String
     var playing: Bool
+    /// What the download button saves: the movie, or the next episode of a series.
+    var downloadID: String? = nil
     var play: () -> Void
-    @State private var downloadNotice = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -78,18 +79,44 @@ struct ActionRow: View {
                     .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.stroke))
             }.buttonStyle(.plain)
-            Button { downloadNotice = true } label: {
-                Image(systemName: "arrow.down.to.line").font(.headline).frame(width: 50, height: 50)
-                    .background(Color.white.opacity(0.12), in: Circle()).overlay(Circle().stroke(Palette.stroke))
-            }
-            .buttonStyle(.plain).accessibilityLabel("Descargar")
-            .alert("Descargas", isPresented: $downloadNotice) { Button("Aceptar", role: .cancel) {} } message: {
-                Text("Las descargas para ver sin conexión llegan en la próxima etapa.")
-            }
+            DownloadButton(id: downloadID ?? id)
         }
     }
 }
 
+/// Download, progress ring with stop, or a check mark with "Eliminar descarga".
+struct DownloadButton: View {
+    @EnvironmentObject var store: AppStore
+    var id: String
+    var size: CGFloat = 50
+    @State private var confirmRemove = false
+
+    var body: some View {
+        Group {
+            if let progress = store.downloadProgress[id] {
+                Button { store.cancelDownload(id) } label: {
+                    ZStack {
+                        Circle().stroke(Color.white.opacity(0.2), lineWidth: 3)
+                        Circle().trim(from: 0, to: max(0.02, progress)).stroke(Palette.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
+                        Image(systemName: "stop.fill").font(.system(size: size * 0.26))
+                    }.padding(size * 0.12)
+                }.accessibilityLabel("Detener descarga, \(Int(progress * 100)) %")
+            } else if store.downloadedIDs.contains(id) {
+                Button { confirmRemove = true } label: { Image(systemName: "checkmark.circle.fill").font(.system(size: size * 0.42)).foregroundStyle(Palette.accent) }
+                    .accessibilityLabel("Descargado")
+                    .confirmationDialog("Disponible sin conexión", isPresented: $confirmRemove) {
+                        Button("Eliminar descarga", role: .destructive) { store.removeDownload(id) }
+                    }
+            } else {
+                Button { store.download(id) } label: { Image(systemName: "arrow.down.to.line").font(.system(size: size * 0.34, weight: .semibold)) }
+                    .accessibilityLabel("Descargar")
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(width: size, height: size)
+        .background(Color.white.opacity(0.12), in: Circle()).overlay(Circle().stroke(Palette.stroke))
+    }
+}
 struct DetailTabs<Tab: Hashable>: View {
     var tabs: [(Tab, String)]
     @Binding var selection: Tab
@@ -364,7 +391,7 @@ struct ShowDetailView: View {
                                  badges: Array(Set(show.seasons.flatMap(\.episodes).map(\.file.format))).sorted(), info: info) {
                         VStack(alignment: .leading, spacing: 8) {
                             ActionRow(id: id, playTitle: next.map { (store.progress[$0.id]?.resumable == true ? "Continuar " : "Reproducir ") + "T\($0.season) · E\($0.number)" } ?? "Reproducir",
-                                      playing: next.map { store.opening == $0.id } ?? false) {
+                                      playing: next.map { store.opening == $0.id } ?? false, downloadID: next?.id) {
                                 if let next { store.play(store.request(episode: next, show: show)) }
                             }
                             if let next, let progress = store.progress[next.id], progress.resumable {
@@ -439,32 +466,35 @@ struct ShowDetailView: View {
         let tmdb = info?.episode(season: episode.season, number: episode.number)
         let progress = store.progress[episode.id]
         let name = tmdb?.name.nonEmpty ?? episode.title ?? "Episodio \(episode.number)"
-        return Button { store.play(store.request(episode: episode, show: show)) } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Color.clear.frame(width: 130, height: 74)
-                    .overlay { Artwork(source: tmdb?.stillPath.map { ImageSource.tmdb($0, size: "w300") } ?? info?.wideThumb, title: "") }
-                    .overlay {
-                        if store.opening == episode.id { ProgressView() }
-                        else { Image(systemName: "play.fill").font(.title3).foregroundStyle(.white.opacity(0.9)).shadow(radius: 4) }
+        return HStack(alignment: .center, spacing: 8) {
+            Button { store.play(store.request(episode: episode, show: show)) } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    Color.clear.frame(width: 130, height: 74)
+                        .overlay { Artwork(source: tmdb?.stillPath.map { ImageSource.tmdb($0, size: "w300") } ?? info?.wideThumb, title: "") }
+                        .overlay {
+                            if store.opening == episode.id { ProgressView() }
+                            else { Image(systemName: "play.fill").font(.title3).foregroundStyle(.white.opacity(0.9)).shadow(radius: 4) }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if progress?.finished == true { Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.accent).padding(5) }
+                        }
+                        .overlay(alignment: .bottom) { if let progress, progress.resumable { ProgressBar(fraction: progress.fraction).padding(5) } }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(episode.number > 0 ? "\(episode.number). \(name)" : name).font(.subheadline.weight(.semibold)).lineLimit(2)
+                        Text(dot([Catalog.runtimeText(tmdb?.runtime), progress?.resumable == true ? remainingText(progress!.remaining) : progress?.finished == true ? "Visto" : nil, episode.file.format]))
+                            .font(.caption).foregroundStyle(progress?.resumable == true ? Palette.accent : Palette.secondaryText)
+                        if let overview = tmdb?.overview.nonEmpty {
+                            Text(overview).font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
+                        }
                     }
-                    .overlay(alignment: .topTrailing) {
-                        if progress?.finished == true { Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.accent).padding(5) }
-                    }
-                    .overlay(alignment: .bottom) { if let progress, progress.resumable { ProgressBar(fraction: progress.fraction).padding(5) } }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(episode.number > 0 ? "\(episode.number). \(name)" : name).font(.subheadline.weight(.semibold)).lineLimit(2)
-                    Text(dot([Catalog.runtimeText(tmdb?.runtime), progress?.resumable == true ? remainingText(progress!.remaining) : progress?.finished == true ? "Visto" : nil, episode.file.format]))
-                        .font(.caption).foregroundStyle(progress?.resumable == true ? Palette.accent : Palette.secondaryText)
-                    if let overview = tmdb?.overview.nonEmpty {
-                        Text(overview).font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(2)
-                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            DownloadButton(id: episode.id, size: 36)
         }
-        .buttonStyle(.plain)
         .contextMenu {
             if progress?.finished == true { Button("Marcar como no visto", systemImage: "eye.slash") { store.clearProgress(episode.id) } }
             else { Button("Marcar como visto", systemImage: "checkmark.circle") { store.markWatched(episode.id) } }

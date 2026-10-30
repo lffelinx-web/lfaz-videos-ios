@@ -60,6 +60,7 @@ struct RootView: View {
             Button("Aceptar", role: .cancel) { store.error = nil }
         } message: { Text(store.error ?? "") }
         .task {
+            await BlockCache.shared.configure(megabytes: UserDefaults.standard.object(forKey: "cacheMB") as? Int ?? 2048)
             await store.checkConnection()
             store.enrichMetadata()
         }

@@ -21,6 +21,12 @@ final class AppStore: ObservableObject {
     @Published var hasTMDB = TMDBCredential.load() != nil
     @Published var enrichStatus: String?
     var enrichTask: Task<Void, Never>?
+    @Published var downloadedIDs: Set<String> = []
+    @Published var downloadProgress: [String: Double] = [:]
+    var downloadQueue: [String] = []
+    var activeDownload: String?
+    var downloadTask: Task<Void, Never>?
+    var wholeCacheTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
 
     private var libraryName: String { "library-" + String(Files.key(account?.scope ?? "none").prefix(16)) + ".json" }
@@ -33,7 +39,7 @@ final class AppStore: ObservableObject {
         if account != nil {
             library = Files.load(libraryName, as: Library.self) ?? Library()
             progress = Files.load(progressName, as: [String: WatchProgress].self) ?? [:]
-            loadExtras()
+            loadExtras(); refreshDownloads()
             status = library.isEmpty ? "Cuenta guardada" : summary(library)
         }
     }
@@ -58,7 +64,7 @@ final class AppStore: ObservableObject {
                 account = candidate
                 library = Files.load(libraryName, as: Library.self) ?? Library()
                 progress = Files.load(progressName, as: [String: WatchProgress].self) ?? [:]
-                loadExtras()
+                loadExtras(); refreshDownloads()
             } else { account = candidate }
             nasConnected = true; status = "Conectado"; return true
         } catch { self.error = error.localizedDescription; return false }
@@ -91,7 +97,7 @@ final class AppStore: ObservableObject {
                 status = summary(library)
                 let missing = library.missingSections.map(\.title)
                 libraryFeedback = missing.isEmpty ? "Biblioteca actualizada" : "Biblioteca actualizada. No se encontró: " + missing.joined(separator: ", ")
-                enrichMetadata()
+                enrichMetadata(); refreshDownloads()
             } catch is CancellationError {
                 status = summary(library)
             } catch {
@@ -113,6 +119,7 @@ final class AppStore: ObservableObject {
             do {
                 let url = try await StreamServer.shared.url(for: request.file, account: account)
                 let id = request.id
+                cacheWhole(request.file)
                 if request.file.native {
                     NativePlayerController.present(url: url, title: request.title, start: request.start,
                                                    onProgress: { [weak self] position, duration in self?.record(id, position: position, duration: duration) },

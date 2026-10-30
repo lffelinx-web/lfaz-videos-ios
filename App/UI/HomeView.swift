@@ -18,6 +18,7 @@ struct HomeView: View {
                         .overlay(alignment: .top) { header.padding(.top, 54) }
                 }
                 ContinueWatchingRow()
+                PosterRow(title: "Descargas", ids: downloadedTitles)
                 if !store.watchlist.isEmpty { PosterRow(title: "Mi lista", ids: store.watchlist.filter { store.card($0) != nil }.sorted()) }
                 PosterRow(title: "Recomendado para ti", ids: store.recommended)
                 PosterRow(title: "Agregados recientemente", ids: store.recentlyAdded)
@@ -28,6 +29,16 @@ struct HomeView: View {
         .background(Palette.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .refreshable { store.synchronize() }
+    }
+
+    /// Downloaded movies, and the series that have downloaded episodes.
+    private var downloadedTitles: [String] {
+        var ids: [String] = []
+        for id in store.downloadedIDs.sorted() {
+            let title = store.movie(id) != nil ? id : store.show(containing: id)?.id
+            if let title, !ids.contains(title) { ids.append(title) }
+        }
+        return ids
     }
 
     private var header: some View {

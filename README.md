@@ -15,7 +15,7 @@ El proyecto se genera con XcodeGen y se compila en GitHub Actions sobre macOS, s
 
 ## Estado
 
-Etapa 1 (0.1.0): conexión al NAS, escaneo de `Películas`, `Series` y `Videos`, y pantallas provisionales para comprobar la biblioteca.
+0.4.0: conexión al NAS, escaneo de la biblioteca, reproducción de MP4 y MKV con caché en disco, diseño de los bocetos con datos de TMDB, descargas sin conexión, Picture in Picture y audio en segundo plano.
 
 Estructura esperada en la carpeta compartida:
 

@@ -8,17 +8,15 @@ import Network
 /// answers each byte range by fetching it from the NAS in blocks.
 final class StreamServer: @unchecked Sendable {
     static let shared = StreamServer()
-    static let blockSize = 2 * 1_048_576
-    /// A small first block lets playback start before a full block arrives over Tailscale.
-    static let firstBlockSize = 512 * 1024
-    static let prefetch = 2
+
+    /// Blocks requested ahead of the one being written to the player.
+    static let prefetch = 3
 
     private let queue = DispatchQueue(label: "lfaz.stream.server")
     private let lock = NSLock()
     private var listener: NWListener?
     private var port: UInt16 = 0
     private var items: [String: (file: VideoFile, account: NASAccount)] = [:]
-    private var lengths: [URL: Int64] = [:]
 
     func url(for file: VideoFile, account: NASAccount) async throws -> URL {
         let port = try await start()
@@ -77,10 +75,10 @@ final class StreamServer: @unchecked Sendable {
         guard ["GET", "HEAD"].contains(method), let item = lock.withLock({ items[token] }) else {
             try? await send(connection, Data("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)); return
         }
-        let transport = NASTransport(item.account)
         do {
-            let total = try await length(of: item.file, transport: transport)
-            let mime = MediaType.mime(item.file.url.pathExtension)
+            let cache = BlockCache.shared, file = item.file, account = item.account
+            let total = try await cache.length(file, account: account)
+            let mime = MediaType.mime(file.url.pathExtension)
             guard let range = ByteRange.parse(headers["range"], total: total) else {
                 try await send(connection, Data("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */\(total)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)); return
             }
@@ -91,36 +89,35 @@ final class StreamServer: @unchecked Sendable {
             try await send(connection, Data((response + "\r\n").utf8))
             guard method == "GET" else { return }
 
-            // Keep two blocks in flight so each NAS round trip overlaps with writing to the player.
-            var next = range.start
-            var pending: [Task<Data, Error>] = []
+            // Whole aligned blocks come from BlockCache (disk or NAS); keep the next ones
+            // in flight so each NAS round trip overlaps with writing to the player.
+            let size = Int64(BlockCache.blockSize)
+            let first = range.start / size, last = range.end / size
+            var next = first
+            var pending: [(index: Int64, task: Task<Data, Error>)] = []
             func schedule() {
-                while pending.count < Self.prefetch && next <= range.end {
-                    let start = next, first = start == range.start
-                    let size = Int(min(Int64(first ? Self.firstBlockSize : Self.blockSize), range.end - start + 1))
-                    pending.append(Task { try await transport.range(item.file.url, start: start, count: size).data })
-                    next += Int64(size)
+                while pending.count < Self.prefetch && next <= last {
+                    let index = next
+                    pending.append((index, Task { try await cache.block(index, of: file, account: account) }))
+                    next += 1
                 }
             }
-            defer { pending.forEach { $0.cancel() } }
+            defer { pending.forEach { $0.task.cancel() } }
             schedule()
             while !pending.isEmpty {
-                let data = try await pending.removeFirst().value
+                let (index, task) = pending.removeFirst()
+                let data = try await task.value
                 guard !data.isEmpty else { return }
                 schedule()
-                try await send(connection, data)
+                let blockStart = index * size
+                let from = Int(max(range.start, blockStart) - blockStart)
+                let to = Int(min(range.end + 1, blockStart + Int64(data.count)) - blockStart)
+                guard from < to else { return }
+                try await send(connection, data.subdata(in: from..<to))
             }
         } catch {
             // The player closed the connection (seek or stop) or the NAS failed; the player retries with a new range.
         }
-    }
-
-    private func length(of file: VideoFile, transport: NASTransport) async throws -> Int64 {
-        if let known = lock.withLock({ lengths[file.url] }) { return known }
-        let response = try await transport.range(file.url, start: 0, count: 1, prefix: true)
-        guard let total = response.totalLength ?? file.bytes, total > 0 else { throw VideoError.message("No se pudo conocer el tamaño del video.") }
-        lock.withLock { lengths[file.url] = total }
-        return total
     }
 
     private func receiveHead(_ connection: NWConnection) async throws -> Data {

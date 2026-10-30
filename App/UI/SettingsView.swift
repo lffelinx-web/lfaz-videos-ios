@@ -12,6 +12,12 @@ struct SettingsView: View {
     @State private var working = false
     @State private var tmdbToken = ""
     @State private var savingToken = false
+    @AppStorage("cacheMB") private var cacheMB = 2048
+    @State private var cacheSize = "—"
+
+    private func refreshCacheSize() async {
+        cacheSize = ByteCountFormatter.string(fromByteCount: await BlockCache.shared.cacheSize(), countStyle: .file)
+    }
 
     var body: some View {
         NavigationStack {
@@ -70,9 +76,25 @@ struct SettingsView: View {
                         Text(store.hasTMDB ? "\(store.metadata.count) títulos con información. Los que no se encuentran se pueden renombrar en el NAS con el formato Título (Año)."
                              : "Crea una cuenta gratuita en themoviedb.org, ve a Ajustes → API y copia el «Token de acceso de lectura de la API». Se guarda en el llavero de este iPhone.")
                     }
+                    Section {
+                        LabeledContent("Descargas", value: countText(store.downloadedIDs.count, "título", "títulos") + " · " + ByteCountFormatter.string(fromByteCount: store.downloadsSize, countStyle: .file))
+                        if !store.downloadedIDs.isEmpty {
+                            Button("Eliminar todas las descargas", role: .destructive) { store.removeAllDownloads() }
+                        }
+                        Picker("Caché temporal", selection: $cacheMB) {
+                            ForEach([512, 1024, 2048, 5120], id: \.self) { Text($0 >= 1024 ? "\($0 / 1024) GB" : "\($0) MB").tag($0) }
+                        }
+                        Button { Task { await BlockCache.shared.clearCache(); await refreshCacheSize() } } label: {
+                            LabeledContent("Vaciar caché", value: cacheSize)
+                        }
+                    } header: { Text("Descargas y caché") } footer: {
+                        Text("Las descargas se guardan en este iPhone para verlas sin conexión. La caché conserva lo que ya reprodujiste para retroceder al instante y se vacía sola al llenarse.")
+                    }
                     Section { Button("Cerrar sesión", role: .destructive) { store.disconnect() } }
                 }
             }
+            .task { await refreshCacheSize() }
+            .onChange(of: cacheMB) { _, value in Task { await BlockCache.shared.configure(megabytes: value); await refreshCacheSize() } }
             .navigationTitle("Ajustes")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } } }
