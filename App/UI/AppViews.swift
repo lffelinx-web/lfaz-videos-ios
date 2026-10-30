@@ -27,29 +27,15 @@ enum BarMode: Equatable {
 
 struct RootView: View {
     @EnvironmentObject var store: AppStore
-    @State private var mode = BarMode.main(.home)
-    @State private var path = NavigationPath()
     @State private var settings = false
 
     var body: some View {
-        NavigationStack(path: $path) {
-            screen
-                .navigationDestination(for: Route.self) { route in
-                    switch route {
-                    case .movie(let id): MovieDetailView(id: id)
-                    case .show(let id): ShowDetailView(id: id)
-                    case .list(let title, let ids): TitleGridView(title: title, ids: ids)
-                    }
-                }
+        Group {
+            // iOS 18+ uses the system tab bar, which on iOS 26 is Liquid Glass with the
+            // draggable lens; iOS 17 keeps the custom floating bar.
+            if #available(iOS 18, *) { SystemTabs(openSettings: { settings = true }) }
+            else { LegacyRoot(openSettings: { settings = true }) }
         }
-        .overlay(alignment: .bottom) {
-            if path.isEmpty {
-                // Sits low, over the home indicator area, like the system tab bar.
-                FloatingBar(mode: $mode).padding(.horizontal, 16).offset(y: 18)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: path.isEmpty)
         .background(Palette.background.ignoresSafeArea())
         .sheet(isPresented: $settings) { SettingsView() }
         .fullScreenCover(item: $store.vlcSession) { session in
@@ -66,16 +52,106 @@ struct RootView: View {
             store.enrichMetadata()
         }
         .onAppear { if store.account == nil { settings = true } }
+    }
+}
+
+/// Destinations shared by every navigation stack.
+struct RouteStack<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        NavigationStack {
+            content().navigationDestination(for: Route.self) { route in
+                switch route {
+                case .movie(let id): MovieDetailView(id: id)
+                case .show(let id): ShowDetailView(id: id)
+                case .list(let title, let ids): TitleGridView(title: title, ids: ids)
+                }
+            }
+        }
+    }
+}
+
+enum AppTab: Hashable {
+    case home, library, search, menu
+    case section(LibrarySection)
+}
+
+/// The same two faces as the sketches: Inicio · Biblioteca · Buscar, and inside Biblioteca
+/// the grid button plus Películas · Series · Videos.
+@available(iOS 18, *)
+struct SystemTabs: View {
+    var openSettings: () -> Void
+    @State private var tab = AppTab.home
+    @State private var library = false
+
+    var body: some View {
+        TabView(selection: $tab) {
+            if library {
+                Tab("Menú", systemImage: "square.grid.2x2.fill", value: AppTab.menu) { Palette.background }
+                ForEach(LibrarySection.allCases) { section in
+                    Tab(section.title, systemImage: section.tabSymbol, value: AppTab.section(section)) {
+                        RouteStack { LibraryView(section: section, openSearch: openSearch) }
+                    }
+                }
+            } else {
+                Tab("Inicio", systemImage: "house.fill", value: AppTab.home) { RouteStack { HomeView(openSettings: openSettings) } }
+                Tab("Biblioteca", systemImage: "books.vertical", value: AppTab.library) { Palette.background }
+                Tab("Buscar", systemImage: "magnifyingglass", value: AppTab.search) { RouteStack { SearchView() } }
+            }
+        }
+        .tint(Palette.accent)
+        .onChange(of: tab) { _, selected in
+            switch selected {
+            case .library: withAnimation(.bouncy) { library = true; tab = .section(.movies) }
+            case .menu: withAnimation(.bouncy) { library = false; tab = .home }
+            default: break
+            }
+        }
+    }
+
+    private func openSearch() { withAnimation(.bouncy) { library = false; tab = .search } }
+}
+
+/// iOS 17: one stack with the custom floating bar on top.
+struct LegacyRoot: View {
+    var openSettings: () -> Void
+    @State private var mode = BarMode.main(.home)
+    @State private var path = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            screen
+                .navigationDestination(for: Route.self) { route in
+                    switch route {
+                    case .movie(let id): MovieDetailView(id: id)
+                    case .show(let id): ShowDetailView(id: id)
+                    case .list(let title, let ids): TitleGridView(title: title, ids: ids)
+                    }
+                }
+        }
+        .overlay(alignment: .bottom) {
+            if path.isEmpty {
+                FloatingBar(mode: $mode).padding(.horizontal, 16).offset(y: 18)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: path.isEmpty)
         .onChange(of: mode) { _, _ in path = NavigationPath() }
     }
 
     @ViewBuilder private var screen: some View {
         switch mode {
-        case .main(.home): HomeView(openSettings: { settings = true })
+        case .main(.home): HomeView(openSettings: openSettings)
         case .main(.search): SearchView()
         case .library(let section): LibraryView(section: section, openSearch: { withAnimation(.snappy) { mode = .main(.search) } })
         }
     }
+}
+
+/// Room left at the bottom of scrolling screens: the system tab bar insets the safe area
+/// on its own, the custom floating bar does not.
+enum BarInset {
+    static var bottom: CGFloat { if #available(iOS 18, *) { return 24 } else { return 110 } }
 }
 
 struct FloatingBar: View {
@@ -84,7 +160,7 @@ struct FloatingBar: View {
     private let spring = Animation.bouncy(duration: 0.45, extraBounce: 0.1)
 
     var body: some View {
-        LiquidContainer(spacing: 6) {
+        Group {
             HStack(spacing: 2) {
                 switch mode {
                 case .main(let tab):

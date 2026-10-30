@@ -23,7 +23,7 @@ struct HomeView: View {
                 PosterRow(title: "Recomendado para ti", ids: store.recommended)
                 PosterRow(title: "Agregados recientemente", ids: store.recentlyAdded)
             }
-            .padding(.bottom, 110)
+            .padding(.bottom, BarInset.bottom)
         }
         .ignoresSafeArea(edges: store.featured.isEmpty ? [] : .top)
         .background(Palette.background.ignoresSafeArea())

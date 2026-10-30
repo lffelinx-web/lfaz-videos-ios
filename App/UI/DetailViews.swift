@@ -335,6 +335,7 @@ struct MovieDetailView: View {
             .ignoresSafeArea(edges: .top)
             .background(Palette.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .tabBar)
             .sheet(item: $sheet) { ExploreSheetView(kind: $0, info: info, related: related) }
         } else {
             Text("Esta película ya no está en la biblioteca.").foregroundStyle(Palette.secondaryText)
@@ -419,6 +420,9 @@ struct ShowDetailView: View {
                                 LazyVStack(alignment: .leading, spacing: 14) {
                                     ForEach(episodes) { episode in episodeRow(episode, show: show, info: info) }
                                 }
+                                // Swap the list at once; only the season lens animates.
+                                .id(current)
+                                .transaction { $0.animation = nil }
                             }
                             ExploreCards(title: title, info: info, hasRelated: !related.isEmpty, sheet: $sheet)
                         case .universe:
@@ -443,6 +447,7 @@ struct ShowDetailView: View {
             .ignoresSafeArea(edges: .top)
             .background(Palette.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .tabBar)
             .sheet(item: $sheet) { ExploreSheetView(kind: $0, info: info, related: related) }
         } else {
             Text("Esta serie ya no está en la biblioteca.").foregroundStyle(Palette.secondaryText)

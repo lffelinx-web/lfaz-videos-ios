@@ -28,7 +28,7 @@ struct LibraryView: View {
                 ChipBar(all: "Todas", options: genres, selection: $genre)
                 content.padding(.horizontal, 20)
             }
-            .padding(.bottom, 110)
+            .padding(.bottom, BarInset.bottom)
         }
         .background(Palette.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
@@ -160,5 +160,6 @@ struct TitleGridView: View {
         }
         .background(Palette.background.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
     }
 }
